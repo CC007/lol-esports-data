@@ -1,29 +1,12 @@
-from datetime import datetime, timezone, timedelta
-from pprint import pprint
+import tkinter as tk
 
-from lolapi.events.getlive import get_live_games, find_live_match, Event, Game, League, Team
+from gui.topbanner import EsportsTopBanner
+from lolapi.events.getlive import get_live_games
 from lolapi.matchdetails.getwindow import get_window, GameWindow, TeamFrame
+from utils import parseTimestamp, now, getTeamNames
 
 BASE_URL = "https://esports-api.lolesports.com/persisted/gw"
 API_KEY = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
-
-
-def parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def now() -> str:
-    current_time = datetime.now(timezone.utc)
-    # print(current_time)
-    current_time_ten_seconds = current_time - timedelta(seconds=current_time.second % 10) - timedelta(seconds=40)
-    # print(current_time_ten_seconds)
-    return current_time_ten_seconds.isoformat(
-        timespec="seconds"
-    ).replace("+00:00", "Z")
-
-
-def getTeamNames(event: Event) -> dict[str, str]:
-    return {team.id: team.name for team in event.match.teams}
 
 
 def liveGameData():
@@ -40,18 +23,29 @@ def liveGameData():
             None,
         )
         if active_game:
-            getGameData(active_game.id, teams)
+            showGameData(active_game.id, teams)
         else:
             print(f"No game found for ID {active_game.id} ({' vs '.join(teams.values())})")
 
 
-def getGameData(game_id, teams):
+def showGameData(game_id, teams):
     current_time = now()
     # print(current_time)
     window = get_window(game_id, starting_time=current_time)
     first_window = get_window(game_id)
     if window and first_window:
         print(formatTeamStats(window, first_window, teams))
+
+        root = tk.Tk()
+        root.title("LoL Esports")
+        root.configure(bg="#101722")
+
+        banner = EsportsTopBanner(root)
+        banner.pack(fill="x", padx=12, pady=12)
+
+        banner.update_stats(window, first_window, teams)
+
+        root.mainloop()
     else:
         print(f"No game found for ID {game_id} ({' vs '.join(teams.values())})")
 
@@ -69,7 +63,7 @@ def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[st
 
     def dragons(team: TeamFrame) -> str:
         return ", ".join(team.dragons) if team.dragons else "—"
-    elapsed = parse_timestamp(frame.rfc460Timestamp) - parse_timestamp(first_frame.rfc460Timestamp)
+    elapsed = parseTimestamp(frame.rfc460Timestamp) - parseTimestamp(first_frame.rfc460Timestamp)
 
     total_seconds = int(elapsed.total_seconds())
     minutes, seconds = divmod(total_seconds, 60)
@@ -89,7 +83,6 @@ def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[st
 def main():
     # getGameData("116299649500204437")
     liveGameData()
-
 
 if __name__ == '__main__':
     main()
