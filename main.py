@@ -43,7 +43,13 @@ def showGameData(game_id, teams):
         banner = EsportsTopBanner(root)
         banner.pack(fill="x", padx=12, pady=12)
 
-        banner.update_stats(window, first_window, teams)
+        banner.update_stats(
+            window, first_window, teams,
+            blue_score=0,
+            red_score=2,
+            game_number=3,
+            best_of=5,
+        )
 
         root.mainloop()
     else:
@@ -63,6 +69,7 @@ def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[st
 
     def dragons(team: TeamFrame) -> str:
         return ", ".join(team.dragons) if team.dragons else "—"
+
     elapsed = parseTimestamp(frame.rfc460Timestamp) - parseTimestamp(first_frame.rfc460Timestamp)
 
     total_seconds = int(elapsed.total_seconds())
@@ -83,6 +90,7 @@ def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[st
 def main():
     # showGameData("116299649500204437", {"111692118851466302": "Cloud9 Kia", "98767991877340524": "Karmine Corp"})
     liveGameData()
+
 
 if __name__ == '__main__':
     main()

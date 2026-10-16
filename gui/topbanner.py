@@ -14,7 +14,6 @@ DRAGON_ICON_FILES = {
     "ocean": "Ocean_Dragon.webp",
 }
 
-
 class EsportsTopBanner(tk.Frame):
     BG = "#07131c"
     TOP = "#10232e"
@@ -25,7 +24,7 @@ class EsportsTopBanner(tk.Frame):
     MUTED = "#89a0ad"
     GOLD = "#f6d66b"
 
-    def __init__(self, master, height=140):
+    def __init__(self, master, height=150):
         super().__init__(master, bg=self.BG)
 
         self.height = height
@@ -45,13 +44,13 @@ class EsportsTopBanner(tk.Frame):
 
     def _load_dragon_icons(self):
         """Load local WebP dragon icons from the icons folder beside this file."""
-        icon_dir = Path(__file__).resolve().parent.parent / "icons"
+        icon_dir = Path(__file__).resolve().parent / "icons"
 
         for name, filename in DRAGON_ICON_FILES.items():
             path = icon_dir / filename
             try:
                 image = Image.open(path).convert("RGBA")
-                image.thumbnail((18, 18))
+                image.thumbnail((24, 24))
                 self.dragon_icons[name] = ImageTk.PhotoImage(image)
             except OSError as exc:
                 print(f"Could not load dragon icon {path}: {exc}")
@@ -125,6 +124,7 @@ class EsportsTopBanner(tk.Frame):
 
         start = parseTimestamp(first_frame.rfc460Timestamp)
         end = parseTimestamp(frame.rfc460Timestamp)
+
         if start is not None and end is not None:
             total_seconds = max(0, int((end - start).total_seconds()))
         else:
@@ -185,7 +185,6 @@ class EsportsTopBanner(tk.Frame):
             outline="",
             )
 
-        # Names sit at the outer edges; series scores frame the centered clock.
         canvas.create_text(
             width * 0.13, 22,
             text=str(blue_name).upper(),
@@ -225,16 +224,21 @@ class EsportsTopBanner(tk.Frame):
             width=width * 0.22,
             )
 
-        # Team-color accents at each outer edge.
-        canvas.create_line(4, top_height - 2, width / 2, top_height - 2,
-                           fill=self.BLUE, width=2)
-        canvas.create_line(width / 2, top_height - 2, width - 4, top_height - 2,
-                           fill=self.RED, width=2)
+        canvas.create_line(
+            4, top_height - 2, center, top_height - 2,
+            fill=self.BLUE,
+            width=2,
+               )
+        canvas.create_line(
+            center, top_height - 2, width - 4, top_height - 2,
+            fill=self.RED,
+            width=2,
+                    )
 
     def _draw_stats_strip(self, width, blue, red):
         canvas = self.canvas
         top = 63
-        center_width = min(136, width * 0.24)
+        center_width = min(110, width * 0.20)
         side_width = (width - center_width) / 2
 
         canvas.create_rectangle(
@@ -243,30 +247,35 @@ class EsportsTopBanner(tk.Frame):
             outline="",
         )
 
+        left_center = side_width
+        right_center = width - side_width
+
         canvas.create_line(
-            side_width, top + 4, side_width, self.height - 4,
+            left_center, top + 5, left_center, self.height - 5,
             fill="#29404c",
-                        )
+                         )
         canvas.create_line(
-            width - side_width, top + 4, width - side_width, self.height - 4,
+            right_center, top + 5, right_center, self.height - 5,
             fill="#29404c",
-            )
+                          )
 
         self._draw_side_stats(
             x1=0,
-            x2=side_width,
+            x2=left_center,
             y1=top,
             y2=self.height,
             team=blue,
             accent=self.BLUE,
+            order=("TOWERS", "INHIBS", "DRAGONS", "BARONS", "KILLS", "GOLD"),
         )
         self._draw_side_stats(
-            x1=width - side_width,
+            x1=right_center,
             x2=width,
             y1=top,
             y2=self.height,
             team=red,
             accent=self.RED,
+            order=("GOLD", "KILLS", "BARONS", "DRAGONS", "INHIBS", "TOWERS"),
         )
 
         difference = blue.totalGold - red.totalGold
@@ -278,61 +287,60 @@ class EsportsTopBanner(tk.Frame):
             arrow, color = "•", self.MUTED
 
         center_x = width / 2
+        center_y = (top + self.height) / 2
+
         canvas.create_text(
-            center_x, top + 16,
+            center_x, center_y - 14,
             text="GOLD DIFF",
             fill=self.MUTED,
-            font=("Arial", 7, "bold"),
+            font=("Arial", 9, "bold"),
                       )
         canvas.create_text(
-            center_x, top + 37,
+            center_x, center_y + 14,
             text=f"{arrow} {self._format_gold(abs(difference))} {arrow}",
             fill=color,
-            font=("Arial", 11, "bold"),
+            font=("Arial", 13, "bold"),
                       )
 
-    def _draw_side_stats(self, *, x1, x2, y1, y2, team, accent):
+    def _draw_side_stats(self, *, x1, x2, y1, y2, team, accent, order):
         canvas = self.canvas
-        columns = 3
-        cell_width = (x2 - x1) / columns
-        row_height = (y2 - y1) / 2
+        cell_width = (x2 - x1) / len(order)
+        center_y = (y1 + y2) / 2
 
-        stats = [
-            ("TOWERS", str(team.towers)),
-            ("GOLD", self._format_gold(team.totalGold)),
-            ("KILLS", str(team.totalKills)),
-            ("BARONS", str(team.barons)),
-            ("DRAGONS", None),
-            ("INHIBITORS", str(team.inhibitors)),
-        ]
+        values = {
+            "TOWERS": str(team.towers),
+            "INHIBS": str(team.inhibitors),
+            "DRAGONS": None,
+            "BARONS": str(team.barons),
+            "KILLS": str(team.totalKills),
+            "GOLD": self._format_gold(team.totalGold),
+        }
 
-        for index, (label, value) in enumerate(stats):
-            row, col = divmod(index, columns)
+        for col, label in enumerate(order):
             cell_x1 = x1 + col * cell_width
             cell_x2 = cell_x1 + cell_width
             center_x = (cell_x1 + cell_x2) / 2
-            cell_y = y1 + row * row_height
 
             canvas.create_text(
-                center_x, cell_y + 9,
+                center_x, center_y - 14,
                 text=label,
                 fill=self.MUTED,
-                font=("Arial", 6, "bold"),
+                font=("Arial", 8 if cell_width < 38 else 9, "bold"),
                           )
 
             if label == "DRAGONS":
                 self._draw_dragon_icons(
                     x1=cell_x1,
                     x2=cell_x2,
-                    y=cell_y + 27,
+                    y=center_y + 13,
                     dragons=team.dragons,
                 )
             else:
                 canvas.create_text(
-                    center_x, cell_y + 27,
-                    text=value,
+                    center_x, center_y + 14,
+                    text=values[label],
                     fill=accent if label == "GOLD" else self.TEXT,
-                    font=("Arial", 9, "bold"),
+                    font=("Arial", 11 if cell_width < 38 else 13, "bold"),
                               )
 
     def _draw_dragon_icons(self, *, x1, x2, y, dragons):
@@ -345,12 +353,12 @@ class EsportsTopBanner(tk.Frame):
                 y,
                 text="—",
                 fill=self.TEXT,
-                font=("Arial", 9, "bold"),
+                font=("Arial", 12, "bold"),
                 )
             return
 
-        icon_size = 18
-        gap = 3
+        icon_size = 24
+        gap = 2
         shown = dragons[:3]
         total_width = len(shown) * icon_size + (len(shown) - 1) * gap
         x = (x1 + x2 - total_width) / 2
@@ -375,7 +383,7 @@ class EsportsTopBanner(tk.Frame):
                     y,
                     text=str(dragon)[:3].upper(),
                     fill=self.TEXT,
-                    font=("Arial", 7, "bold"),
+                    font=("Arial", 9, "bold"),
                     )
 
             x += icon_size + gap
@@ -383,3 +391,4 @@ class EsportsTopBanner(tk.Frame):
     @staticmethod
     def _format_gold(gold):
         return f"{gold / 1000:.1f}K"
+
