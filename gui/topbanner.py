@@ -1,10 +1,21 @@
+from pathlib import Path
 import tkinter as tk
-from tkinter import ttk
+
+from PIL import Image, ImageTk
 
 from utils import parseTimestamp
 
+DRAGON_ICON_FILES = {
+    "chemtech": "Chemtech_Dragon.webp",
+    "cloud": "Cloud_Dragon.webp",
+    "hextech": "Hextech_Dragon.webp",
+    "infernal": "Infernal_Dragon.webp",
+    "mountain": "Mountain_Dragon.webp",
+    "ocean": "Ocean_Dragon.webp",
+}
 
-class EsportsTopBanner(ttk.Frame):
+
+class EsportsTopBanner(tk.Frame):
     BG = "#07131c"
     TOP = "#10232e"
     STRIP = "#0b1922"
@@ -14,10 +25,12 @@ class EsportsTopBanner(ttk.Frame):
     MUTED = "#89a0ad"
     GOLD = "#f6d66b"
 
-    def __init__(self, master, height=84):
-        super().__init__(master)
+    def __init__(self, master, height=140):
+        super().__init__(master, bg=self.BG)
+
         self.height = height
         self._stats = None
+        self.dragon_icons = {}
 
         self.canvas = tk.Canvas(
             self,
@@ -28,153 +41,340 @@ class EsportsTopBanner(ttk.Frame):
         self.canvas.pack(fill="x", expand=True)
         self.canvas.bind("<Configure>", self._draw)
 
+        self._load_dragon_icons()
+
+    def _load_dragon_icons(self):
+        """Load icons from the icons folder beside this Python file."""
+        icon_dir = Path(__file__).resolve().parent / "icons"
+
+        for name, filename in DRAGON_ICON_FILES.items():
+            path = icon_dir / filename
+            try:
+                image = Image.open(path).convert("RGBA")
+                image.thumbnail((18, 18))
+                self.dragon_icons[name] = ImageTk.PhotoImage(image)
+            except OSError as exc:
+                print(f"Could not load dragon icon {path}: {exc}")
+
     def update_stats(
             self,
             window,
             first_window,
-            teams,
+            teams: dict[str, str],
             *,
             blue_score=0,
             red_score=0,
-            game_number=2,
-            best_of=5,
+            game_number=1,
+            best_of=3,
     ):
-        """Update the banner. Series scores must be supplied separately."""
+        """Update the banner. Series scores are passed separately."""
         self._stats = (
-            window, first_window, teams,
-            blue_score, red_score, game_number, best_of,
+            window,
+            first_window,
+            teams,
+            blue_score,
+            red_score,
+            game_number,
+            best_of,
         )
         self._draw()
 
     def _draw(self, _event=None):
-        c = self.canvas
-        c.delete("all")
+        canvas = self.canvas
+        canvas.delete("all")
 
-        width = c.winfo_width()
+        width = canvas.winfo_width()
         if width < 100:
             return
 
-        c.create_rectangle(0, 0, width, self.height, fill=self.BG, outline="")
-        if not self._stats:
+        canvas.create_rectangle(
+            0, 0, width, self.height,
+            fill=self.BG,
+            outline="",
+        )
+
+        if self._stats is None:
+            canvas.create_text(
+                width / 2,
+                self.height / 2,
+                text="Waiting for live game data",
+                fill=self.MUTED,
+                font=("Arial", 12, "bold"),
+                )
             return
 
         (
-            window, first_window, teams,
-            blue_score, red_score, game_number, best_of,
+            window,
+            first_window,
+            teams,
+            blue_score,
+            red_score,
+            game_number,
+            best_of,
         ) = self._stats
 
         if not window.frames or not first_window.frames:
-            c.create_text(
-                width / 2, self.height / 2,
+            canvas.create_text(
+                width / 2,
+                self.height / 2,
                 text="No game frames available",
                 fill=self.MUTED,
-                font=("Arial", 11, "bold"),
+                font=("Arial", 12, "bold"),
                 )
             return
 
         frame = window.frames[-1]
         first_frame = first_window.frames[0]
-        blue, red = frame.blueTeam, frame.redTeam
-        metadata = window.gameMetadata
+        blue = frame.blueTeam
+        red = frame.redTeam
 
+        metadata = window.gameMetadata
         blue_id = metadata.blueTeamMetadata.esportsTeamId
         red_id = metadata.redTeamMetadata.esportsTeamId
+
         blue_name = teams.get(blue_id, blue_id)
         red_name = teams.get(red_id, red_id)
 
         elapsed = parseTimestamp(frame.rfc460Timestamp) - parseTimestamp(
             first_frame.rfc460Timestamp
         )
-        seconds = max(0, int(elapsed.total_seconds()))
-        game_time = f"{seconds // 60:02}:{seconds % 60:02}"
+        total_seconds = max(0, int(elapsed.total_seconds()))
+        game_time = f"{total_seconds // 60:02}:{total_seconds % 60:02}"
 
-        top_h = int(self.height * 0.68)
-        mid = width / 2
+        self._draw_scoreboard(
+            width=width,
+            blue_name=blue_name,
+            red_name=red_name,
+            blue_score=blue_score,
+            red_score=red_score,
+            game_time=game_time,
+            game_number=game_number,
+            best_of=best_of,
+        )
+        self._draw_stats_strip(width, blue, red)
 
-        # Main scoreboard band
-        c.create_rectangle(0, 0, width, top_h, fill=self.TOP, outline="")
-        c.create_rectangle(0, 0, 4, top_h, fill=self.BLUE, outline="")
-        c.create_rectangle(width - 4, 0, width, top_h, fill=self.RED, outline="")
+    def _draw_scoreboard(
+            self,
+            *,
+            width,
+            blue_name,
+            red_name,
+            blue_score,
+            red_score,
+            game_time,
+            game_number,
+            best_of,
+    ):
+        canvas = self.canvas
+        top_height = 68
+        center = width / 2
 
-        # Team names
-        c.create_text(
-            width * 0.16, top_h * 0.43,
+        canvas.create_rectangle(
+            0, 0, width, top_height,
+            fill=self.TOP,
+            outline="",
+        )
+        canvas.create_rectangle(
+            0, 0, 4, top_height,
+            fill=self.BLUE,
+            outline="",
+        )
+        canvas.create_rectangle(
+            width - 4, 0, width, top_height,
+            fill=self.RED,
+            outline="",
+            )
+
+        canvas.create_text(
+            width * 0.16, 27,
             text=str(blue_name).upper(),
             fill=self.TEXT,
             font=("Arial", 14, "bold"),
-            width=width * 0.22,
+            width=width * 0.23,
             )
-        c.create_text(
-            width * 0.84, top_h * 0.43,
+        canvas.create_text(
+            width * 0.84, 27,
             text=str(red_name).upper(),
             fill=self.TEXT,
             font=("Arial", 14, "bold"),
-            width=width * 0.22,
+            width=width * 0.23,
             )
 
-        # Series score and game clock
-        c.create_text(
-            width * 0.38, top_h * 0.40,
+        canvas.create_text(
+            width * 0.38, 27,
             text=str(blue_score),
             fill=self.GOLD,
             font=("Arial", 23, "bold"),
             )
-        c.create_text(
-            mid, top_h * 0.34,
-            text=game_time,
-            fill=self.GOLD,
-            font=("Arial", 18, "bold"),
-                 )
-        c.create_text(
-            mid, top_h * 0.76,
-            text=f"GAME {game_number}  •  BEST OF {best_of}",
-            fill=self.MUTED,
-            font=("Arial", 7, "bold"),
-                 )
-        c.create_text(
-            width * 0.62, top_h * 0.40,
+        canvas.create_text(
+            width * 0.62, 27,
             text=str(red_score),
             fill=self.GOLD,
             font=("Arial", 23, "bold"),
             )
 
-        # Thin divider and compact stats strip
-        c.create_rectangle(0, top_h, width, top_h + 1, fill="#29404c", outline="")
-        strip_y = top_h + (self.height - top_h) / 2
-
-        self._stat(c, width * 0.10, strip_y, "TOWERS", blue.towers, red.towers)
-        self._stat(c, width * 0.28, strip_y, "GOLD", self._gold(blue), self._gold(red))
-        self._stat(c, width * 0.45, strip_y, "KILLS", blue.totalKills, red.totalKills)
-        self._stat(c, width * 0.63, strip_y, "GOLD", self._gold(red), self._gold(blue))
-        self._stat(c, width * 0.81, strip_y, "TOWERS", red.towers, blue.towers)
-
-        # Dragons are useful, but fit best as a small footer label when space allows.
-        if width >= 650:
-            c.create_text(
-                width / 2, self.height - 4,
-                text=f"DRAGONS  {self._dragons(blue)}   •   {self._dragons(red)}",
-                fill=self.MUTED,
-                font=("Arial", 7),
-                )
-
-    def _stat(self, canvas, x, y, label, left_value, right_value):
         canvas.create_text(
-            x, y - 6,
-            text=label,
+            center, 24,
+            text=game_time,
+            fill=self.GOLD,
+            font=("Arial", 18, "bold"),
+        )
+        canvas.create_text(
+            center, 49,
+            text=f"GAME {game_number}  •  BEST OF {best_of}",
             fill=self.MUTED,
-            font=("Arial", 6, "bold"),
-               )
+            font=("Arial", 7, "bold"),
+        )
+
+    def _draw_stats_strip(self, width, blue, red):
+        canvas = self.canvas
+        top = 69
+        center_width = min(150, width * 0.22)
+        side_width = (width - center_width) / 2
+
+        canvas.create_rectangle(
+            0, top, width, self.height,
+            fill=self.STRIP,
+            outline="",
+        )
+        canvas.create_line(
+            side_width, top + 4, side_width, self.height - 4,
+            fill="#29404c",
+                        )
+        canvas.create_line(
+            width - side_width, top + 4, width - side_width, self.height - 4,
+            fill="#29404c",
+            )
+
+        self._draw_side_stats(
+            x1=0,
+            x2=side_width,
+            y1=top,
+            y2=self.height,
+            team=blue,
+            accent=self.BLUE,
+        )
+        self._draw_side_stats(
+            x1=width - side_width,
+            x2=width,
+            y1=top,
+            y2=self.height,
+            team=red,
+            accent=self.RED,
+        )
+
+        # Positive difference means blue leads; negative means red leads.
+        difference = blue.totalGold - red.totalGold
+        if difference > 0:
+            arrow, color = "◀", self.BLUE
+        elif difference < 0:
+            arrow, color = "▶", self.RED
+        else:
+            arrow, color = "•", self.MUTED
+
+        center_x = width / 2
         canvas.create_text(
-            x, y + 4,
-            text=f"{left_value}                         {right_value}",
-            fill=self.TEXT,
-            font=("Arial", 8, "bold"),
-               )
+            center_x, top + 17,
+            text="GOLD DIFF",
+            fill=self.MUTED,
+            font=("Arial", 7, "bold"),
+                      )
+        canvas.create_text(
+            center_x, top + 39,
+            text=f"{arrow} {self._format_gold(abs(difference))} {arrow}",
+            fill=color,
+            font=("Arial", 11, "bold"),
+                      )
+
+    def _draw_side_stats(self, *, x1, x2, y1, y2, team, accent):
+        canvas = self.canvas
+        columns = 3
+        cell_width = (x2 - x1) / columns
+        cell_height = (y2 - y1) / 2
+
+        stats = [
+            ("TOWERS", str(team.towers)),
+            ("GOLD", self._format_gold(team.totalGold)),
+            ("KILLS", str(team.totalKills)),
+            ("BARONS", str(team.barons)),
+            ("DRAGONS", None),
+            ("INHIBITORS", str(team.inhibitors)),
+        ]
+
+        for index, (label, value) in enumerate(stats):
+            row, col = divmod(index, columns)
+            cell_x1 = x1 + col * cell_width
+            cell_x2 = cell_x1 + cell_width
+            center_x = (cell_x1 + cell_x2) / 2
+            cell_y = y1 + row * cell_height
+
+            canvas.create_text(
+                center_x, cell_y + 10,
+                text=label,
+                fill=self.MUTED,
+                font=("Arial", 6, "bold"),
+                          )
+
+            if label == "DRAGONS":
+                self._draw_dragon_icons(
+                    x1=cell_x1,
+                    x2=cell_x2,
+                    y=cell_y + 28,
+                    dragons=team.dragons,
+                )
+            else:
+                canvas.create_text(
+                    center_x, cell_y + 29,
+                    text=value,
+                    fill=accent if label == "GOLD" else self.TEXT,
+                    font=("Arial", 9, "bold"),
+                              )
+
+    def _draw_dragon_icons(self, *, x1, x2, y, dragons):
+        canvas = self.canvas
+        dragons = dragons or []
+
+        if not dragons:
+            canvas.create_text(
+                (x1 + x2) / 2,
+                y,
+                text="—",
+                fill=self.TEXT,
+                font=("Arial", 9, "bold"),
+                )
+            return
+
+        icon_size = 18
+        gap = 3
+        shown = dragons[:3]
+        total_width = len(shown) * icon_size + (len(shown) - 1) * gap
+        x = (x1 + x2 - total_width) / 2
+
+        for dragon in shown:
+            dragon_name = str(dragon).lower()
+            icon_name = next(
+                (name for name in self.dragon_icons if name in dragon_name),
+                None,
+            )
+            icon = self.dragon_icons.get(icon_name) if icon_name else None
+
+            if icon:
+                canvas.create_image(
+                    x + icon_size / 2,
+                    y,
+                    image=icon,
+                    )
+            else:
+                canvas.create_text(
+                    x + icon_size / 2,
+                    y,
+                    text=str(dragon)[:3].upper(),
+                    fill=self.TEXT,
+                    font=("Arial", 7, "bold"),
+                    )
+
+            x += icon_size + gap
 
     @staticmethod
-    def _gold(team):
-        return f"{team.totalGold / 1000:.1f}K"
-
-    @staticmethod
-    def _dragons(team):
-        return ", ".join(team.dragons) if team.dragons else "—"
+    def _format_gold(gold):
+        return f"{gold / 1000:.1f}K"

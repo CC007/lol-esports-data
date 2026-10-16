@@ -81,7 +81,7 @@ def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[st
 
 
 def main():
-    # getGameData("116299649500204437")
+    # showGameData("116299649500204437", {"111692118851466302": "Cloud9 Kia", "98767991877340524": "Karmine Corp"})
     liveGameData()
 
 if __name__ == '__main__':
