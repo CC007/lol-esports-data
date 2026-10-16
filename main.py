@@ -54,6 +54,7 @@ def show_game_picker(root):
     root.title("Select an in-progress game")
     root.configure(bg="#101722")
     root.geometry("620x360")
+    opened_game_ids = set()
 
     tk.Label(
         root,
@@ -102,6 +103,23 @@ def show_game_picker(root):
     )
     delay_slider.pack(side="right")
 
+    def open_game(event, game):
+        if game.id in opened_game_ids:
+            return
+
+        opened_game_ids.add(game.id)
+        blue_score, red_score = get_series_scores(event, game)
+
+        showGameData(
+            game.id,
+            getTeamNames(event),
+            blue_score=blue_score,
+            red_score=red_score,
+            game_number=game.number,
+            best_of=event.match.strategy.count,
+            delay_getter=lambda: int(delay_value.get()),
+        )
+
     def refresh_game_list():
         try:
             updated_games = get_in_progress_games()
@@ -141,6 +159,10 @@ def show_game_picker(root):
                 f"{blue_name} vs {red_name}",
             )
 
+        if len(games) == 1:
+            event, game = games[0]
+            open_game(event, game)
+
         root.after(10_000, refresh_game_list)
 
     def open_selected_game():
@@ -154,7 +176,7 @@ def show_game_picker(root):
             return
 
         event, game = games[selection[0]]
-        blue_score, red_score = get_series_scores(event, game)
+        open_game(event, game)
 
         showGameData(
             game.id,
