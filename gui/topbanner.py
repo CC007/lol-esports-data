@@ -1,9 +1,11 @@
 from pathlib import Path
+import time
 import tkinter as tk
 
 from PIL import Image, ImageTk
 
 from utils import parseTimestamp
+
 
 DRAGON_ICON_FILES = {
     "chemtech": "Chemtech_Dragon.webp",
@@ -13,6 +15,7 @@ DRAGON_ICON_FILES = {
     "mountain": "Mountain_Dragon.webp",
     "ocean": "Ocean_Dragon.webp",
 }
+
 
 class EsportsTopBanner(tk.Frame):
     BG = "#07131c"
@@ -29,6 +32,9 @@ class EsportsTopBanner(tk.Frame):
 
         self.height = height
         self._stats = None
+        self._game_time_seconds = 0
+        self._last_tick = time.monotonic()
+        self._tick_job = None
         self.dragon_icons = {}
 
         self.canvas = tk.Canvas(
@@ -41,6 +47,7 @@ class EsportsTopBanner(tk.Frame):
         self.canvas.bind("<Configure>", self._draw)
 
         self._load_dragon_icons()
+        self._schedule_clock_tick()
 
     def _load_dragon_icons(self):
         """Load local WebP dragon icons from the icons folder beside this file."""
@@ -76,7 +83,42 @@ class EsportsTopBanner(tk.Frame):
             game_number,
             best_of,
         )
+
+        # Set the game clock from the returned frames. It will advance locally
+        # once per second until the next API refresh.
+        self._game_time_seconds = 0
+        if window.frames and first_window.frames:
+            start = parseTimestamp(first_window.frames[0].rfc460Timestamp)
+            end = parseTimestamp(window.frames[-1].rfc460Timestamp)
+            if start is not None and end is not None:
+                self._game_time_seconds = max(
+                    0, int((end - start).total_seconds())
+                )
+
+        self._last_tick = time.monotonic()
         self._draw()
+
+    def _schedule_clock_tick(self):
+        """Advance the displayed game clock and redraw once per second."""
+        if not self.winfo_exists():
+            return
+
+        now = time.monotonic()
+        elapsed = int(now - self._last_tick)
+        if elapsed > 0:
+            self._game_time_seconds += elapsed
+            self._last_tick += elapsed
+
+        self._draw()
+        self._tick_job = self.after(1000, self._schedule_clock_tick)
+
+    def destroy(self):
+        if self._tick_job is not None:
+            try:
+                self.after_cancel(self._tick_job)
+            except tk.TclError:
+                pass
+        super().destroy()
 
     def _draw(self, _event=None):
         canvas = self.canvas
@@ -111,7 +153,6 @@ class EsportsTopBanner(tk.Frame):
             return
 
         frame = window.frames[-1]
-        first_frame = first_window.frames[0]
         blue = frame.blueTeam
         red = frame.redTeam
 
@@ -122,15 +163,10 @@ class EsportsTopBanner(tk.Frame):
         blue_name = teams.get(blue_id, blue_id)
         red_name = teams.get(red_id, red_id)
 
-        start = parseTimestamp(first_frame.rfc460Timestamp)
-        end = parseTimestamp(frame.rfc460Timestamp)
-
-        if start is not None and end is not None:
-            total_seconds = max(0, int((end - start).total_seconds()))
-        else:
-            total_seconds = 0
-
-        game_time = f"{total_seconds // 60:02}:{total_seconds % 60:02}"
+        game_time = (
+            f"{self._game_time_seconds // 60:02}:"
+            f"{self._game_time_seconds % 60:02}"
+        )
 
         self._draw_scoreboard(
             width=width,
@@ -391,4 +427,3 @@ class EsportsTopBanner(tk.Frame):
     @staticmethod
     def _format_gold(gold):
         return f"{gold / 1000:.1f}K"
-

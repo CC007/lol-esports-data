@@ -1,3 +1,5 @@
+import threading
+import time
 import tkinter as tk
 
 from gui.topbanner import EsportsTopBanner
@@ -25,35 +27,57 @@ def liveGameData():
         if active_game:
             showGameData(active_game.id, teams)
         else:
-            print(f"No game found for ID {active_game.id} ({' vs '.join(teams.values())})")
+            print(f"No game ID found ({' vs '.join(teams.values())})")
+
 
 
 def showGameData(game_id, teams):
-    current_time = now()
-    # print(current_time)
-    window = get_window(game_id, starting_time=current_time)
-    first_window = get_window(game_id)
-    if window and first_window:
-        print(formatTeamStats(window, first_window, teams))
+    root = tk.Tk()
+    root.title("LoL Esports")
+    root.configure(bg="#101722")
 
-        root = tk.Tk()
-        root.title("LoL Esports")
-        root.configure(bg="#101722")
+    banner = EsportsTopBanner(root)
+    banner.pack(fill="x", padx=12, pady=12)
 
-        banner = EsportsTopBanner(root)
-        banner.pack(fill="x", padx=12, pady=12)
+    blue_score = 0
+    red_score = 2
+    game_number = 3
+    best_of = 5
 
-        banner.update_stats(
-            window, first_window, teams,
-            blue_score=0,
-            red_score=2,
-            game_number=3,
-            best_of=5,
-        )
+    def fetch_and_update():
+        """Fetch off the Tk thread; apply results on the Tk thread."""
+        try:
+            current_time = now()
+            window = get_window(game_id, starting_time=current_time)
+            first_window = get_window(game_id)
 
-        root.mainloop()
-    else:
-        print(f"No game found for ID {game_id} ({' vs '.join(teams.values())})")
+            if window and first_window:
+                root.after(
+                    0,
+                    lambda: banner.update_stats(
+                        window,
+                        first_window,
+                        teams,
+                        blue_score=blue_score,
+                        red_score=red_score,
+                        game_number=game_number,
+                        best_of=best_of,
+                    ),
+                )
+            else:
+                print(f"No game frames available for {game_id}")
+        except Exception as exc:
+            print(f"Could not refresh game {game_id}: {exc}")
+
+    def refresh():
+        threading.Thread(target=fetch_and_update, daemon=True).start()
+
+        # Align the next refresh with the next wall-clock multiple of 10 seconds.
+        delay_ms = 10_000 - (int(time.time()) % 10) * 1_000
+        root.after(delay_ms, refresh)
+
+    refresh()
+    root.mainloop()
 
 
 def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[str, str]) -> str:
