@@ -7,12 +7,12 @@ def parseTimestamp(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def now() -> str:
+def now(delay_seconds: int = 40) -> str:
     current_time = datetime.now(timezone.utc)
-    # print(current_time)
-    current_time_ten_seconds = current_time - timedelta(seconds=current_time.second % 10) - timedelta(seconds=40)
-    # print(current_time_ten_seconds)
-    return current_time_ten_seconds.isoformat(
+    rounded_time = current_time - timedelta(seconds=current_time.second % 10)
+    delayed_time = rounded_time - timedelta(seconds=delay_seconds)
+
+    return delayed_time.isoformat(
         timespec="seconds"
     ).replace("+00:00", "Z")
 

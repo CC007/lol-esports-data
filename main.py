@@ -1,61 +1,172 @@
 import threading
 import time
 import tkinter as tk
+from tkinter import messagebox
 
 from gui.topbanner import EsportsTopBanner
 from lolapi.events.getlive import get_live_games
-from lolapi.matchdetails.getwindow import get_window, GameWindow, TeamFrame
-from utils import parseTimestamp, now, getTeamNames
+from lolapi.matchdetails.getwindow import get_window
+from utils import now, getTeamNames
+
 
 BASE_URL = "https://esports-api.lolesports.com/persisted/gw"
 API_KEY = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
 
 
-def liveGameData():
+def get_in_progress_games():
+    """Return (event, game) pairs for all currently in-progress games."""
     live = get_live_games(api_key=API_KEY)
 
-    for event in live.data.schedule.events:
-        if event.league.slug != "worlds":
-            continue
+    return [
+        (event, game)
+        for event in live.data.schedule.events
+        for game in event.match.games
+        if game.state == "inProgress"
+    ]
 
-        active_game = next(
-            (
-                game for game in event.match.games
-                if game.state == "inProgress"
-            ),
-            None,
-        )
 
-        teams = getTeamNames(event)
+def get_series_scores(event, game):
+    """Return the current series scores from the active game's blue/red sides."""
+    teams_by_id = {team.id: team for team in event.match.teams}
+    scores = {"blue": 0, "red": 0}
 
-        if active_game is None:
-            print(f"No game ID found ({' vs '.join(teams.values())})")
-            continue
+    for game_team in game.teams:
+        side = game_team.side.casefold()
+        match_team = teams_by_id.get(game_team.id)
 
-        # Match each active game's side to the corresponding match team.
-        match_teams_by_id = {
-            team.id: team for team in event.match.teams
-        }
-        scores = {"blue": 0, "red": 0}
+        if side in scores and match_team is not None:
+            scores[side] = match_team.result.gameWins
 
-        for game_team in active_game.teams:
-            side = game_team.side.casefold()
-            match_team = match_teams_by_id.get(game_team.id)
+    return scores["blue"], scores["red"]
 
-            if side in scores and match_team is not None:
-                scores[side] = match_team.result.gameWins
+
+def show_game_picker(root):
+    root.title("Select an in-progress game")
+    root.configure(bg="#101722")
+    root.geometry("620x360")
+
+    tk.Label(
+        root,
+        text="IN-PROGRESS GAMES",
+        bg="#101722",
+        fg="white",
+        font=("Arial", 16, "bold"),
+    ).pack(pady=(14, 8))
+
+    game_list = tk.Listbox(
+        root,
+        bg="#0b1922",
+        fg="white",
+        selectbackground="#176b7a",
+        font=("Arial", 11),
+        height=10,
+    )
+    game_list.pack(fill="both", expand=True, padx=16)
+
+    # Keep the corresponding event/game objects alongside the displayed rows.
+    games = []
+
+    delay_frame = tk.Frame(root, bg="#101722")
+    delay_frame.pack(fill="x", padx=16, pady=(10, 0))
+
+    tk.Label(
+        delay_frame,
+        text="Game-data delay (seconds):",
+        bg="#101722",
+        fg="white",
+    ).pack(side="left")
+
+    delay_value = tk.StringVar(value="40")
+    delay_slider = tk.Scale(
+        delay_frame,
+        from_=0,
+        to=120,
+        resolution=10,
+        orient="horizontal",
+        variable=delay_value,
+        bg="#101722",
+        fg="white",
+        troughcolor="#29404c",
+        highlightthickness=0,
+        length=300,
+    )
+    delay_slider.pack(side="right")
+
+    def refresh_game_list():
+        try:
+            updated_games = get_in_progress_games()
+        except Exception as exc:
+            messagebox.showerror("Live games unavailable", str(exc), parent=root)
+            root.after(10_000, refresh_game_list)
+            return
+
+        games.clear()
+        games.extend(updated_games)
+        game_list.delete(0, tk.END)
+
+        for event, game in games:
+            team_names = {team.id: team.name for team in event.match.teams}
+            sides = {team.id: team.side.casefold() for team in game.teams}
+
+            blue_name = next(
+                (
+                    team_names[team_id]
+                    for team_id, side in sides.items()
+                    if side == "blue" and team_id in team_names
+                ),
+                "Blue team",
+            )
+            red_name = next(
+                (
+                    team_names[team_id]
+                    for team_id, side in sides.items()
+                    if side == "red" and team_id in team_names
+                ),
+                "Red team",
+            )
+
+            game_list.insert(
+                tk.END,
+                f"{event.league.name} | Game {game.number} | "
+                f"{blue_name} vs {red_name}",
+            )
+
+        root.after(10_000, refresh_game_list)
+
+    def open_selected_game():
+        selection = game_list.curselection()
+        if not selection:
+            messagebox.showinfo(
+                "Select a game",
+                "Choose an in-progress game first.",
+                parent=root,
+            )
+            return
+
+        event, game = games[selection[0]]
+        blue_score, red_score = get_series_scores(event, game)
 
         showGameData(
-            active_game.id,
-            teams,
-            blue_score=scores["blue"],
-            red_score=scores["red"],
-            game_number=active_game.number,
+            game.id,
+            getTeamNames(event),
+            blue_score=blue_score,
+            red_score=red_score,
+            game_number=game.number,
             best_of=event.match.strategy.count,
+            delay_getter=lambda: int(delay_value.get()),
         )
-        return
 
-    print("No in-progress Worlds game found")
+    tk.Button(
+        root,
+        text="Open scoreboard",
+        command=open_selected_game,
+        bg="#176b7a",
+        fg="white",
+        activebackground="#20d9e8",
+        font=("Arial", 11, "bold"),
+    ).pack(pady=12)
+
+    refresh_game_list()
 
 
 def showGameData(
@@ -66,24 +177,26 @@ def showGameData(
         red_score,
         game_number,
         best_of,
+        delay_getter,
 ):
-    root = tk.Tk()
-    root.title("LoL Esports")
-    root.configure(bg="#101722")
+    scoreboard = tk.Toplevel()
+    scoreboard.title("LoL Esports")
+    scoreboard.configure(bg="#101722")
 
-    banner = EsportsTopBanner(root)
+    banner = EsportsTopBanner(scoreboard)
     banner.pack(fill="x", padx=12, pady=12)
 
     def fetch_and_update():
-        """Fetch game windows off the Tk thread; update the banner on it."""
         try:
-            current_time = now()
-            window = get_window(game_id, starting_time=current_time)
+            window = get_window(
+                game_id,
+                starting_time=now(delay_seconds=delay_getter()),
+            )
             first_window = get_window(game_id)
 
             if window and first_window:
                 def apply_update():
-                    if root.winfo_exists():
+                    if scoreboard.winfo_exists():
                         banner.update_stats(
                             window,
                             first_window,
@@ -94,61 +207,30 @@ def showGameData(
                             best_of=best_of,
                         )
 
-                root.after(0, apply_update)
+                scoreboard.after(0, apply_update)
             else:
                 print(f"No game frames available for {game_id}")
         except Exception as exc:
             print(f"Could not refresh game {game_id}: {exc}")
 
     def refresh():
-        if not root.winfo_exists():
+        if not scoreboard.winfo_exists():
             return
 
         threading.Thread(target=fetch_and_update, daemon=True).start()
 
-        # Schedule the next request at the next wall-clock multiple of 10 seconds.
+        # Refresh at the next wall-clock multiple of 10 seconds.
         delay_ms = (10 - int(time.time()) % 10) * 1_000
-        root.after(delay_ms, refresh)
+        scoreboard.after(delay_ms, refresh)
 
     refresh()
-    root.mainloop()
-
-
-def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[str, str]) -> str:
-    if not window.frames or not first_window.frames:
-        return f"No game frames available. ({' vs '.join(teams.values())})"
-
-    frame = window.frames[-1]
-    first_frame = first_window.frames[0]
-    blue = frame.blueTeam
-    blue_team_name = teams[window.gameMetadata.blueTeamMetadata.esportsTeamId]
-    red = frame.redTeam
-    red_team_name = teams[window.gameMetadata.redTeamMetadata.esportsTeamId]
-
-    def dragons(team: TeamFrame) -> str:
-        return ", ".join(team.dragons) if team.dragons else "—"
-
-    elapsed = parseTimestamp(frame.rfc460Timestamp) - parseTimestamp(first_frame.rfc460Timestamp)
-
-    total_seconds = int(elapsed.total_seconds())
-    minutes, seconds = divmod(total_seconds, 60)
-
-    return (
-        f"Game time: {minutes}:{seconds:02}\n"
-        f"             {blue_team_name:^30} {red_team_name:^30}\n"
-        f"Inhibitors   {blue.inhibitors:^30} {red.inhibitors:^30}\n"
-        f"Towers       {blue.towers:^30} {red.towers:^30}\n"
-        f"Barons       {blue.barons:^30} {red.barons:^30}\n"
-        f"Kills        {blue.totalKills:^30} {red.totalKills:^30}\n"
-        f"Team gold    {blue.totalGold:^30} {red.totalGold:^30}\n"
-        f"Dragons      {dragons(blue):^30} {dragons(red):^30}"
-    )
 
 
 def main():
-    # showGameData("116299649500204437", {"111692118851466302": "Cloud9 Kia", "98767991877340524": "Karmine Corp"})
-    liveGameData()
+    root = tk.Tk()
+    show_game_picker(root)
+    root.mainloop()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
