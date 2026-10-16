@@ -13,25 +13,60 @@ API_KEY = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
 
 def liveGameData():
     live = get_live_games(api_key=API_KEY)
-    current_event = None
-    for event in filter(lambda event: event.league.slug == "worlds", live.data.schedule.events):
-        current_event = event
-    # current_event = find_live_match(live, "Karmine Corp", "Cloud9 Kia")
-    if current_event:
-        teams = getTeamNames(current_event)
-        # pprint(teams)
+
+    for event in live.data.schedule.events:
+        if event.league.slug != "worlds":
+            continue
+
         active_game = next(
-            (game for game in current_event.match.games if game.state == "inProgress"),
+            (
+                game for game in event.match.games
+                if game.state == "inProgress"
+            ),
             None,
         )
-        if active_game:
-            showGameData(active_game.id, teams)
-        else:
+
+        teams = getTeamNames(event)
+
+        if active_game is None:
             print(f"No game ID found ({' vs '.join(teams.values())})")
+            continue
+
+        # Match each active game's side to the corresponding match team.
+        match_teams_by_id = {
+            team.id: team for team in event.match.teams
+        }
+        scores = {"blue": 0, "red": 0}
+
+        for game_team in active_game.teams:
+            side = game_team.side.casefold()
+            match_team = match_teams_by_id.get(game_team.id)
+
+            if side in scores and match_team is not None:
+                scores[side] = match_team.result.gameWins
+
+        showGameData(
+            active_game.id,
+            teams,
+            blue_score=scores["blue"],
+            red_score=scores["red"],
+            game_number=active_game.number,
+            best_of=event.match.strategy.count,
+        )
+        return
+
+    print("No in-progress Worlds game found")
 
 
-
-def showGameData(game_id, teams):
+def showGameData(
+        game_id,
+        teams,
+        *,
+        blue_score,
+        red_score,
+        game_number,
+        best_of,
+):
     root = tk.Tk()
     root.title("LoL Esports")
     root.configure(bg="#101722")
@@ -39,41 +74,40 @@ def showGameData(game_id, teams):
     banner = EsportsTopBanner(root)
     banner.pack(fill="x", padx=12, pady=12)
 
-    blue_score = 0
-    red_score = 2
-    game_number = 3
-    best_of = 5
-
     def fetch_and_update():
-        """Fetch off the Tk thread; apply results on the Tk thread."""
+        """Fetch game windows off the Tk thread; update the banner on it."""
         try:
             current_time = now()
             window = get_window(game_id, starting_time=current_time)
             first_window = get_window(game_id)
 
             if window and first_window:
-                root.after(
-                    0,
-                    lambda: banner.update_stats(
-                        window,
-                        first_window,
-                        teams,
-                        blue_score=blue_score,
-                        red_score=red_score,
-                        game_number=game_number,
-                        best_of=best_of,
-                    ),
-                )
+                def apply_update():
+                    if root.winfo_exists():
+                        banner.update_stats(
+                            window,
+                            first_window,
+                            teams,
+                            blue_score=blue_score,
+                            red_score=red_score,
+                            game_number=game_number,
+                            best_of=best_of,
+                        )
+
+                root.after(0, apply_update)
             else:
                 print(f"No game frames available for {game_id}")
         except Exception as exc:
             print(f"Could not refresh game {game_id}: {exc}")
 
     def refresh():
+        if not root.winfo_exists():
+            return
+
         threading.Thread(target=fetch_and_update, daemon=True).start()
 
-        # Align the next refresh with the next wall-clock multiple of 10 seconds.
-        delay_ms = 10_000 - (int(time.time()) % 10) * 1_000
+        # Schedule the next request at the next wall-clock multiple of 10 seconds.
+        delay_ms = (10 - int(time.time()) % 10) * 1_000
         root.after(delay_ms, refresh)
 
     refresh()
