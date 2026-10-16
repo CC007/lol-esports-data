@@ -31,6 +31,7 @@ class EsportsTopBanner(tk.Frame):
         super().__init__(master, bg=self.BG)
 
         self.height = height
+        self._series_only = None
         self._stats = None
         self._game_time_seconds = 0
         self._last_tick = time.monotonic()
@@ -62,6 +63,30 @@ class EsportsTopBanner(tk.Frame):
             except OSError as exc:
                 print(f"Could not load dragon icon {path}: {exc}")
 
+
+    def show_series_only(
+            self,
+            blue_name: str,
+            red_name: str,
+            *,
+            blue_score: int,
+            red_score: int,
+            game_number: int | None = None,
+            best_of: int | None = None,
+    ) -> None:
+        """Show team names and series score without any game stats."""
+        self._series_only = (
+            blue_name,
+            red_name,
+            blue_score,
+            red_score,
+            game_number,
+            best_of,
+        )
+        self._stats = None
+        self._draw()
+
+
     def update_stats(
             self,
             window,
@@ -73,6 +98,7 @@ class EsportsTopBanner(tk.Frame):
             game_number=1,
             best_of=3,
     ):
+        self._series_only = None
         """Update game data and series scores."""
         self._stats = (
             window,
@@ -134,6 +160,27 @@ class EsportsTopBanner(tk.Frame):
             outline="",
         )
 
+        if self._series_only is not None:
+            (
+                blue_name,
+                red_name,
+                blue_score,
+                red_score,
+                game_number,
+                best_of,
+            ) = self._series_only
+
+            self._draw_series_only(
+                width,
+                blue_name,
+                red_name,
+                blue_score,
+                red_score,
+                game_number,
+                best_of,
+            )
+            return
+
         if self._stats is None:
             self._draw_message(width, "Waiting for live game data")
             return
@@ -180,6 +227,8 @@ class EsportsTopBanner(tk.Frame):
         )
         self._draw_stats_strip(width, blue, red)
 
+
+
     def _draw_message(self, width, message):
         self.canvas.create_text(
             width / 2,
@@ -188,6 +237,95 @@ class EsportsTopBanner(tk.Frame):
             fill=self.MUTED,
             font=("Arial", 12, "bold"),
             )
+
+    def _draw_series_only(
+            self,
+            width,
+            blue_name,
+            red_name,
+            blue_score,
+            red_score,
+            game_number,
+            best_of,
+    ):
+        canvas = self.canvas
+        center = width / 2
+        top_height = 62
+
+        canvas.create_rectangle(
+            0, 0, width, top_height,
+            fill=self.TOP,
+            outline="",
+        )
+        canvas.create_rectangle(
+            0, 0, 4, top_height,
+            fill=self.BLUE,
+            outline="",
+        )
+        canvas.create_rectangle(
+            width - 4, 0, width, top_height,
+            fill=self.RED,
+            outline="",
+            )
+
+        canvas.create_text(
+            width * 0.13, 22,
+            text=str(blue_name).upper(),
+            fill=self.TEXT,
+            font=("Arial", 14, "bold"),
+            width=width * 0.22,
+            )
+        canvas.create_text(
+            width * 0.34, 23,
+            text=str(blue_score),
+            fill=self.GOLD,
+            font=("Arial", 23, "bold"),
+            )
+        canvas.create_text(
+            center, 23,
+            text="—",
+            fill=self.MUTED,
+            font=("Arial", 16, "bold"),
+        )
+        canvas.create_text(
+            width * 0.66, 23,
+            text=str(red_score),
+            fill=self.GOLD,
+            font=("Arial", 23, "bold"),
+            )
+        canvas.create_text(
+            width * 0.87, 22,
+            text=str(red_name).upper(),
+            fill=self.TEXT,
+            font=("Arial", 14, "bold"),
+            width=width * 0.22,
+            )
+
+        if game_number is not None and best_of is not None:
+            canvas.create_text(
+                center, 48,
+                text=f"GAME {game_number}  ·  BEST OF {best_of}",
+                fill=self.MUTED,
+                font=("Arial", 7, "bold"),
+            )
+
+        canvas.create_line(
+            4, top_height - 2, center, top_height - 2,
+            fill=self.BLUE,
+            width=2,
+               )
+        canvas.create_line(
+            center, top_height - 2, width - 4, top_height - 2,
+            fill=self.RED,
+            width=2,
+                    )
+
+        # Intentionally leave the lower strip empty: no clock or game stats.
+        canvas.create_rectangle(
+            0, top_height, width, self.height,
+            fill=self.STRIP,
+            outline="",
+        )
 
     def _draw_scoreboard(
             self,

@@ -12,6 +12,16 @@ from utils import now, getTeamNames
 BASE_URL = "https://esports-api.lolesports.com/persisted/gw"
 API_KEY = "0TvQnueqKa5mxJntVWt0w4LpLfEkrV1Ta8rQBb9Z"
 
+def get_game_context(game_id):
+    """Return the latest event and game containing game_id, or (None, None)."""
+    live = get_live_games(api_key=API_KEY)
+
+    for event in live.data.schedule.events:
+        for game in event.match.games:
+            if game.id == game_id:
+                return event, game
+
+    return None, None
 
 def get_in_progress_games():
     """Return (event, game) pairs for all currently in-progress games."""
@@ -186,32 +196,110 @@ def showGameData(
     banner = EsportsTopBanner(scoreboard)
     banner.pack(fill="x", padx=12, pady=12)
 
+    blue_team_id = next(
+        (team_id for team_id, name in teams.items() if name == list(teams.values())[0]),
+        None,
+    )
+    red_team_id = next(
+        (team_id for team_id in teams if team_id != blue_team_id),
+        None,
+    )
+
     def fetch_and_update():
         try:
-            window = get_window(
-                game_id,
-                starting_time=now(delay_seconds=delay_getter()),
+            event, current_game = get_game_context(game_id)
+
+            # Keep scores current, including after the game has finished.
+            current_blue_score = blue_score
+            current_red_score = red_score
+
+            if event is not None:
+                current_blue_score, current_red_score = get_series_scores(
+                    event,
+                    current_game,
+                )
+
+            # Use the selected game's side assignments and names.
+            blue_name = "Blue team"
+            red_name = "Red team"
+
+            if event is not None:
+                names_by_id = {team.id: team.name for team in event.match.teams}
+
+                for game_team in current_game.teams:
+                    side = game_team.side.casefold()
+                    name = names_by_id.get(game_team.id, game_team.id)
+
+                    if side == "blue":
+                        blue_name = name
+                    elif side == "red":
+                        red_name = name
+
+            still_in_progress = (
+                    current_game is not None
+                    and current_game.state == "inProgress"
             )
-            first_window = get_window(game_id)
 
-            if window and first_window:
-                def apply_update():
-                    if scoreboard.winfo_exists():
-                        banner.update_stats(
-                            window,
-                            first_window,
-                            teams,
-                            blue_score=blue_score,
-                            red_score=red_score,
-                            game_number=game_number,
-                            best_of=best_of,
-                        )
+            if still_in_progress:
+                window = get_window(
+                    game_id,
+                    starting_time=now(delay_seconds=delay_getter()),
+                )
+                first_window = get_window(game_id)
 
-                scoreboard.after(0, apply_update)
-            else:
-                print(f"No game frames available for {game_id}")
+                if window and window.frames and first_window and first_window.frames:
+                    def apply_live_update():
+                        if scoreboard.winfo_exists():
+                            banner.update_stats(
+                                window,
+                                first_window,
+                                teams,
+                                blue_score=current_blue_score,
+                                red_score=current_red_score,
+                                game_number=(
+                                    current_game.number
+                                    if current_game is not None
+                                    else game_number
+                                ),
+                                best_of=best_of,
+                            )
+
+                    scoreboard.after(0, apply_live_update)
+                    return
+
+            def apply_series_only():
+                if scoreboard.winfo_exists():
+                    banner.show_series_only(
+                        blue_name,
+                        red_name,
+                        blue_score=current_blue_score,
+                        red_score=current_red_score,
+                        game_number=(
+                            current_game.number
+                            if current_game is not None
+                            else game_number
+                        ),
+                        best_of=best_of,
+                    )
+
+            scoreboard.after(0, apply_series_only)
+
         except Exception as exc:
             print(f"Could not refresh game {game_id}: {exc}")
+
+            def apply_series_only_on_error():
+                if scoreboard.winfo_exists():
+                    banner.show_series_only(
+                        teams.get(blue_team_id, "Blue team"),
+                        teams.get(red_team_id, "Red team"),
+                        blue_score=blue_score,
+                        red_score=red_score,
+                        game_number=game_number,
+                        best_of=best_of,
+                    )
+
+            # On an API error, clear stale stats rather than leaving the old frame up.
+            scoreboard.after(0, apply_series_only_on_error)
 
     def refresh():
         if not scoreboard.winfo_exists():
