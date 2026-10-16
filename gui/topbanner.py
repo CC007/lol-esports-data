@@ -44,8 +44,8 @@ class EsportsTopBanner(tk.Frame):
         self._load_dragon_icons()
 
     def _load_dragon_icons(self):
-        """Load icons from the icons folder beside this Python file."""
-        icon_dir = Path(__file__).resolve().parent / "icons"
+        """Load local WebP dragon icons from the icons folder beside this file."""
+        icon_dir = Path(__file__).resolve().parent.parent / "icons"
 
         for name, filename in DRAGON_ICON_FILES.items():
             path = icon_dir / filename
@@ -67,7 +67,7 @@ class EsportsTopBanner(tk.Frame):
             game_number=1,
             best_of=3,
     ):
-        """Update the banner. Series scores are passed separately."""
+        """Update game data and series scores."""
         self._stats = (
             window,
             first_window,
@@ -94,13 +94,7 @@ class EsportsTopBanner(tk.Frame):
         )
 
         if self._stats is None:
-            canvas.create_text(
-                width / 2,
-                self.height / 2,
-                text="Waiting for live game data",
-                fill=self.MUTED,
-                font=("Arial", 12, "bold"),
-                )
+            self._draw_message(width, "Waiting for live game data")
             return
 
         (
@@ -114,13 +108,7 @@ class EsportsTopBanner(tk.Frame):
         ) = self._stats
 
         if not window.frames or not first_window.frames:
-            canvas.create_text(
-                width / 2,
-                self.height / 2,
-                text="No game frames available",
-                fill=self.MUTED,
-                font=("Arial", 12, "bold"),
-                )
+            self._draw_message(width, "No game frames available")
             return
 
         frame = window.frames[-1]
@@ -135,10 +123,13 @@ class EsportsTopBanner(tk.Frame):
         blue_name = teams.get(blue_id, blue_id)
         red_name = teams.get(red_id, red_id)
 
-        elapsed = parseTimestamp(frame.rfc460Timestamp) - parseTimestamp(
-            first_frame.rfc460Timestamp
-        )
-        total_seconds = max(0, int(elapsed.total_seconds()))
+        start = parseTimestamp(first_frame.rfc460Timestamp)
+        end = parseTimestamp(frame.rfc460Timestamp)
+        if start is not None and end is not None:
+            total_seconds = max(0, int((end - start).total_seconds()))
+        else:
+            total_seconds = 0
+
         game_time = f"{total_seconds // 60:02}:{total_seconds % 60:02}"
 
         self._draw_scoreboard(
@@ -153,6 +144,15 @@ class EsportsTopBanner(tk.Frame):
         )
         self._draw_stats_strip(width, blue, red)
 
+    def _draw_message(self, width, message):
+        self.canvas.create_text(
+            width / 2,
+            self.height / 2,
+            text=message,
+            fill=self.MUTED,
+            font=("Arial", 12, "bold"),
+            )
+
     def _draw_scoreboard(
             self,
             *,
@@ -166,7 +166,7 @@ class EsportsTopBanner(tk.Frame):
             best_of,
     ):
         canvas = self.canvas
-        top_height = 68
+        top_height = 62
         center = width / 2
 
         canvas.create_rectangle(
@@ -185,51 +185,56 @@ class EsportsTopBanner(tk.Frame):
             outline="",
             )
 
+        # Names sit at the outer edges; series scores frame the centered clock.
         canvas.create_text(
-            width * 0.16, 27,
+            width * 0.13, 22,
             text=str(blue_name).upper(),
             fill=self.TEXT,
             font=("Arial", 14, "bold"),
-            width=width * 0.23,
+            width=width * 0.22,
             )
         canvas.create_text(
-            width * 0.84, 27,
-            text=str(red_name).upper(),
-            fill=self.TEXT,
-            font=("Arial", 14, "bold"),
-            width=width * 0.23,
-            )
-
-        canvas.create_text(
-            width * 0.38, 27,
+            width * 0.34, 23,
             text=str(blue_score),
             fill=self.GOLD,
             font=("Arial", 23, "bold"),
             )
         canvas.create_text(
-            width * 0.62, 27,
+            center, 20,
+            text=game_time,
+            fill=self.GOLD,
+            font=("Arial", 19, "bold"),
+        )
+        canvas.create_text(
+            center, 45,
+            text=f"GAME {game_number}  ·  BEST OF {best_of}",
+            fill=self.MUTED,
+            font=("Arial", 7, "bold"),
+        )
+        canvas.create_text(
+            width * 0.66, 23,
             text=str(red_score),
             fill=self.GOLD,
             font=("Arial", 23, "bold"),
             )
+        canvas.create_text(
+            width * 0.87, 22,
+            text=str(red_name).upper(),
+            fill=self.TEXT,
+            font=("Arial", 14, "bold"),
+            width=width * 0.22,
+            )
 
-        canvas.create_text(
-            center, 24,
-            text=game_time,
-            fill=self.GOLD,
-            font=("Arial", 18, "bold"),
-        )
-        canvas.create_text(
-            center, 49,
-            text=f"GAME {game_number}  •  BEST OF {best_of}",
-            fill=self.MUTED,
-            font=("Arial", 7, "bold"),
-        )
+        # Team-color accents at each outer edge.
+        canvas.create_line(4, top_height - 2, width / 2, top_height - 2,
+                           fill=self.BLUE, width=2)
+        canvas.create_line(width / 2, top_height - 2, width - 4, top_height - 2,
+                           fill=self.RED, width=2)
 
     def _draw_stats_strip(self, width, blue, red):
         canvas = self.canvas
-        top = 69
-        center_width = min(150, width * 0.22)
+        top = 63
+        center_width = min(136, width * 0.24)
         side_width = (width - center_width) / 2
 
         canvas.create_rectangle(
@@ -237,6 +242,7 @@ class EsportsTopBanner(tk.Frame):
             fill=self.STRIP,
             outline="",
         )
+
         canvas.create_line(
             side_width, top + 4, side_width, self.height - 4,
             fill="#29404c",
@@ -263,7 +269,6 @@ class EsportsTopBanner(tk.Frame):
             accent=self.RED,
         )
 
-        # Positive difference means blue leads; negative means red leads.
         difference = blue.totalGold - red.totalGold
         if difference > 0:
             arrow, color = "◀", self.BLUE
@@ -274,13 +279,13 @@ class EsportsTopBanner(tk.Frame):
 
         center_x = width / 2
         canvas.create_text(
-            center_x, top + 17,
+            center_x, top + 16,
             text="GOLD DIFF",
             fill=self.MUTED,
             font=("Arial", 7, "bold"),
                       )
         canvas.create_text(
-            center_x, top + 39,
+            center_x, top + 37,
             text=f"{arrow} {self._format_gold(abs(difference))} {arrow}",
             fill=color,
             font=("Arial", 11, "bold"),
@@ -290,7 +295,7 @@ class EsportsTopBanner(tk.Frame):
         canvas = self.canvas
         columns = 3
         cell_width = (x2 - x1) / columns
-        cell_height = (y2 - y1) / 2
+        row_height = (y2 - y1) / 2
 
         stats = [
             ("TOWERS", str(team.towers)),
@@ -306,10 +311,10 @@ class EsportsTopBanner(tk.Frame):
             cell_x1 = x1 + col * cell_width
             cell_x2 = cell_x1 + cell_width
             center_x = (cell_x1 + cell_x2) / 2
-            cell_y = y1 + row * cell_height
+            cell_y = y1 + row * row_height
 
             canvas.create_text(
-                center_x, cell_y + 10,
+                center_x, cell_y + 9,
                 text=label,
                 fill=self.MUTED,
                 font=("Arial", 6, "bold"),
@@ -319,12 +324,12 @@ class EsportsTopBanner(tk.Frame):
                 self._draw_dragon_icons(
                     x1=cell_x1,
                     x2=cell_x2,
-                    y=cell_y + 28,
+                    y=cell_y + 27,
                     dragons=team.dragons,
                 )
             else:
                 canvas.create_text(
-                    center_x, cell_y + 29,
+                    center_x, cell_y + 27,
                     text=value,
                     fill=accent if label == "GOLD" else self.TEXT,
                     font=("Arial", 9, "bold"),
