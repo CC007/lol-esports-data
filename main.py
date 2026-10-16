@@ -42,7 +42,7 @@ def liveGameData():
         if active_game:
             getGameData(active_game.id, teams)
         else:
-            print("No game found")
+            print(f"No game found for ID {active_game.id} ({' vs '.join(teams.values())})")
 
 
 def getGameData(game_id, teams):
@@ -53,12 +53,12 @@ def getGameData(game_id, teams):
     if window and first_window:
         print(formatTeamStats(window, first_window, teams))
     else:
-        print(f"No game found for ID {game_id}")
+        print(f"No game found for ID {game_id} ({' vs '.join(teams.values())})")
 
 
 def formatTeamStats(window: GameWindow, first_window: GameWindow, teams: dict[str, str]) -> str:
     if not window.frames or not first_window.frames:
-        return "No game frames available."
+        return f"No game frames available. ({' vs '.join(teams.values())})"
 
     frame = window.frames[-1]
     first_frame = first_window.frames[0]
