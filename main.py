@@ -89,7 +89,7 @@ def show_game_picker(root):
     delay_value = tk.StringVar(value="40")
     delay_slider = tk.Scale(
         delay_frame,
-        from_=0,
+        from_=30,
         to=120,
         resolution=10,
         orient="horizontal",
