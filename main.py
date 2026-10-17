@@ -54,7 +54,9 @@ def show_game_picker(root):
     root.title("Select an in-progress game")
     root.configure(bg="#101722")
     root.geometry("620x360")
-    opened_game_ids = set()
+
+    # One scoreboard per event/series, not per individual game.
+    scoreboards_by_event = {}
 
     tk.Label(
         root,
@@ -74,7 +76,6 @@ def show_game_picker(root):
     )
     game_list.pack(fill="both", expand=True, padx=16)
 
-    # Keep the corresponding event/game objects alongside the displayed rows.
     games = []
 
     delay_frame = tk.Frame(root, bg="#101722")
@@ -88,7 +89,7 @@ def show_game_picker(root):
     ).pack(side="left")
 
     delay_value = tk.StringVar(value="40")
-    delay_slider = tk.Scale(
+    tk.Scale(
         delay_frame,
         from_=30,
         to=120,
@@ -100,25 +101,35 @@ def show_game_picker(root):
         troughcolor="#29404c",
         highlightthickness=0,
         length=300,
-    )
-    delay_slider.pack(side="right")
+    ).pack(side="right")
 
     def open_game(event, game):
-        if game.id in opened_game_ids:
+        event_id = event.id
+        scoreboard = scoreboards_by_event.get(event_id)
+
+        if scoreboard is not None and scoreboard.winfo_exists():
+            # Reuse the existing series window and switch it to this game.
+            scoreboard.select_game(event, game)
+            scoreboard.deiconify()
+            scoreboard.lift()
             return
 
-        opened_game_ids.add(game.id)
-        blue_score, red_score = get_series_scores(event, game)
-
-        showGameData(
-            game.id,
-            getTeamNames(event),
-            blue_score=blue_score,
-            red_score=red_score,
-            game_number=game.number,
-            best_of=event.match.strategy.count,
+        scoreboard = showGameData(
+            event,
+            game,
             delay_getter=lambda: int(delay_value.get()),
         )
+        scoreboards_by_event[event_id] = scoreboard
+
+        def remove_closed_window():
+            # Do not remove a newer window if this callback belongs to an old one.
+            if scoreboards_by_event.get(event_id) is scoreboard:
+                scoreboards_by_event.pop(event_id, None)
+
+        scoreboard.protocol("WM_DELETE_WINDOW", lambda: (
+            remove_closed_window(),
+            scoreboard.destroy(),
+        ))
 
     def refresh_game_list():
         try:
@@ -176,17 +187,8 @@ def show_game_picker(root):
             return
 
         event, game = games[selection[0]]
+        # open_game handles both creating and reusing the event's window.
         open_game(event, game)
-
-        showGameData(
-            game.id,
-            getTeamNames(event),
-            blue_score=blue_score,
-            red_score=red_score,
-            game_number=game.number,
-            best_of=event.match.strategy.count,
-            delay_getter=lambda: int(delay_value.get()),
-        )
 
     tk.Button(
         root,
@@ -201,16 +203,7 @@ def show_game_picker(root):
     refresh_game_list()
 
 
-def showGameData(
-        game_id,
-        teams,
-        *,
-        blue_score,
-        red_score,
-        game_number,
-        best_of,
-        delay_getter,
-):
+def showGameData(event, game, *, delay_getter):
     scoreboard = tk.Toplevel()
     scoreboard.title("LoL Esports")
     scoreboard.configure(bg="#101722")
@@ -218,51 +211,53 @@ def showGameData(
     banner = EsportsTopBanner(scoreboard)
     banner.pack(fill="x", padx=12, pady=12)
 
-    blue_team_id = next(
-        (team_id for team_id, name in teams.items() if name == list(teams.values())[0]),
-        None,
-    )
-    red_team_id = next(
-        (team_id for team_id in teams if team_id != blue_team_id),
-        None,
-    )
+    state = {
+        "game_id": game.id,
+        "game_number": game.number,
+        "best_of": event.match.strategy.count,
+        "blue_score": 0,
+        "red_score": 0,
+        "blue_name": "Blue team",
+        "red_name": "Red team",
+        "teams": {},
+    }
+
+    def set_game_context(new_event, new_game):
+        state["game_id"] = new_game.id
+        state["game_number"] = new_game.number
+        state["best_of"] = new_event.match.strategy.count
+
+        blue_score, red_score = get_series_scores(new_event, new_game)
+        state["blue_score"] = blue_score
+        state["red_score"] = red_score
+
+        names_by_id = {team.id: team.name for team in new_event.match.teams}
+        state["teams"] = names_by_id
+        state["blue_name"] = "Blue team"
+        state["red_name"] = "Red team"
+
+        for game_team in new_game.teams:
+            side = game_team.side.casefold()
+            name = names_by_id.get(game_team.id, game_team.id)
+
+            if side == "blue":
+                state["blue_name"] = name
+            elif side == "red":
+                state["red_name"] = name
+
+    set_game_context(event, game)
+    scoreboard.select_game = set_game_context
 
     def fetch_and_update():
+        game_id = state["game_id"]
+
         try:
-            event, current_game = get_game_context(game_id)
+            current_event, current_game = get_game_context(game_id)
 
-            # Keep scores current, including after the game has finished.
-            current_blue_score = blue_score
-            current_red_score = red_score
+            if current_event is not None and current_game is not None:
+                set_game_context(current_event, current_game)
 
-            if event is not None:
-                current_blue_score, current_red_score = get_series_scores(
-                    event,
-                    current_game,
-                )
-
-            # Use the selected game's side assignments and names.
-            blue_name = "Blue team"
-            red_name = "Red team"
-
-            if event is not None:
-                names_by_id = {team.id: team.name for team in event.match.teams}
-
-                for game_team in current_game.teams:
-                    side = game_team.side.casefold()
-                    name = names_by_id.get(game_team.id, game_team.id)
-
-                    if side == "blue":
-                        blue_name = name
-                    elif side == "red":
-                        red_name = name
-
-            still_in_progress = (
-                    current_game is not None
-                    and current_game.state == "inProgress"
-            )
-
-            if still_in_progress:
+            if current_game is not None and current_game.state == "inProgress":
                 window = get_window(
                     game_id,
                     starting_time=now(delay_seconds=delay_getter()),
@@ -270,58 +265,58 @@ def showGameData(
                 first_window = get_window(game_id)
 
                 if window and window.frames and first_window and first_window.frames:
-                    def apply_live_update():
-                        if scoreboard.winfo_exists():
+                    scoreboard.after(
+                        0,
+                        lambda: (
                             banner.update_stats(
                                 window,
                                 first_window,
-                                teams,
-                                blue_score=current_blue_score,
-                                red_score=current_red_score,
-                                game_number=(
-                                    current_game.number
-                                    if current_game is not None
-                                    else game_number
-                                ),
-                                best_of=best_of,
+                                state["teams"],
+                                blue_score=state["blue_score"],
+                                red_score=state["red_score"],
+                                game_number=state["game_number"],
+                                best_of=state["best_of"],
                             )
-
-                    scoreboard.after(0, apply_live_update)
+                            if scoreboard.winfo_exists()
+                            else None
+                        ),
+                    )
                     return
 
-            def apply_series_only():
-                if scoreboard.winfo_exists():
+            scoreboard.after(
+                0,
+                lambda: (
                     banner.show_series_only(
-                        blue_name,
-                        red_name,
-                        blue_score=current_blue_score,
-                        red_score=current_red_score,
-                        game_number=(
-                            current_game.number
-                            if current_game is not None
-                            else game_number
-                        ),
-                        best_of=best_of,
+                        state["blue_name"],
+                        state["red_name"],
+                        blue_score=state["blue_score"],
+                        red_score=state["red_score"],
+                        game_number=state["game_number"],
+                        best_of=state["best_of"],
                     )
-
-            scoreboard.after(0, apply_series_only)
+                    if scoreboard.winfo_exists()
+                    else None
+                ),
+            )
 
         except Exception as exc:
             print(f"Could not refresh game {game_id}: {exc}")
 
-            def apply_series_only_on_error():
-                if scoreboard.winfo_exists():
+            scoreboard.after(
+                0,
+                lambda: (
                     banner.show_series_only(
-                        teams.get(blue_team_id, "Blue team"),
-                        teams.get(red_team_id, "Red team"),
-                        blue_score=blue_score,
-                        red_score=red_score,
-                        game_number=game_number,
-                        best_of=best_of,
+                        state["blue_name"],
+                        state["red_name"],
+                        blue_score=state["blue_score"],
+                        red_score=state["red_score"],
+                        game_number=state["game_number"],
+                        best_of=state["best_of"],
                     )
-
-            # On an API error, clear stale stats rather than leaving the old frame up.
-            scoreboard.after(0, apply_series_only_on_error)
+                    if scoreboard.winfo_exists()
+                    else None
+                ),
+            )
 
     def refresh():
         if not scoreboard.winfo_exists():
@@ -329,11 +324,12 @@ def showGameData(
 
         threading.Thread(target=fetch_and_update, daemon=True).start()
 
-        # Refresh at the next wall-clock multiple of 10 seconds.
+        # Schedule the next refresh at a wall-clock multiple of 10 seconds.
         delay_ms = (10 - int(time.time()) % 10) * 1_000
         scoreboard.after(delay_ms, refresh)
 
     refresh()
+    return scoreboard
 
 
 def main():
