@@ -88,7 +88,7 @@ def show_game_picker(root):
         fg="white",
     ).pack(side="left")
 
-    delay_value = tk.StringVar(value="40")
+    delay_value = tk.StringVar(value="60")
     tk.Scale(
         delay_frame,
         from_=30,
